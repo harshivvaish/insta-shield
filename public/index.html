@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Shield 3.0 | URL Safety Scanner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-10">
+    <div class="max-w-4xl mx-auto bg-white p-8 rounded-xl shadow-md">
+        <h1 class="text-2xl font-bold mb-4 text-blue-800">Shield 3.0: AI Safety Analyzer</h1>
+        <p class="mb-6 text-gray-600">Enter a full URL (including https://) to analyze its security footprint.</p>
+        
+        <div class="flex gap-2 mb-6">
+            <input id="urlInput" type="text" placeholder="https://www.google.com" class="flex-1 p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none">
+            <button onclick="analyzeUrl()" id="btn" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition">Scan URL</button>
+        </div>
+
+        <div id="loader" class="hidden text-center py-10">
+            <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto"></div>
+            <p class="mt-2 text-gray-500">Puppeteer is scanning the site & Gemini is analyzing data...</p>
+        </div>
+
+        <div id="results" class="hidden space-y-4">
+            <div id="safetyCard" class="p-4 rounded-lg border-2">
+                <h2 class="font-bold text-lg">AI Safety Verdict: <span id="verdict"></span></h2>
+                <p id="reason" class="text-sm italic mt-1"></p>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="p-4 bg-gray-50 rounded shadow-sm">
+                    <h3 class="font-bold border-b mb-2 text-gray-700">SSL Certificate</h3>
+                    <pre id="sslPre" class="text-xs overflow-auto font-mono text-blue-600"></pre>
+                </div>
+                <div class="p-4 bg-gray-50 rounded shadow-sm">
+                    <h3 class="font-bold border-b mb-2 text-gray-700">Tracking Cookies</h3>
+                    <ul id="cookieList" class="text-xs list-disc pl-4 space-y-1"></ul>
+                </div>
+            </div>
+
+            <div class="mt-4 grid grid-cols-1 gap-4">
+                <div class="p-4 bg-gray-50 rounded shadow-sm">
+                    <h3 class="font-bold border-b mb-2 text-gray-700">Screenshot & PDF</h3>
+                    <img id="screenshotImg" class="w-full border mb-2" alt="screenshot" />
+                    <a id="pdfLink" class="text-sm text-blue-600 underline" target="_blank" href="#">Download PDF</a>
+                </div>
+
+                <div class="p-4 bg-gray-50 rounded shadow-sm">
+                    <h3 class="font-bold border-b mb-2 text-gray-700">Link Tags</h3>
+                    <ul id="linkList" class="text-xs list-disc pl-4 space-y-1"></ul>
+                </div>
+                
+                <div class="p-4 bg-gray-50 rounded shadow-sm">
+                    <h3 class="font-bold border-b mb-2 text-gray-700">Storage (local & session)</h3>
+                    <pre id="storagePre" class="text-xs overflow-auto font-mono text-gray-700" style="max-height:200px"></pre>
+                </div>
+
+                <div class="p-4 bg-gray-50 rounded shadow-sm">
+                    <h3 class="font-bold border-b mb-2 text-gray-700">Security Headers</h3>
+                    <ul id="securityList" class="text-xs list-disc pl-4 space-y-1"></ul>
+                </div>
+
+                <div class="p-4 bg-gray-50 rounded shadow-sm">
+                    <h3 class="font-bold border-b mb-2 text-gray-700">Background XHR/Fetch Requests</h3>
+                    <ul id="bgReqList" class="text-xs list-disc pl-4 space-y-1"></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function analyzeUrl() {
+            const urlInput = document.getElementById('urlInput').value.trim();
+            const btn = document.getElementById('btn');
+            const resultsDiv = document.getElementById('results');
+            const loader = document.getElementById('loader');
+            
+            if (!urlInput.startsWith('http')) {
+                alert("Please enter a valid URL starting with http:// or https://");
+                return;
+            }
+
+            // UI State: Loading
+            btn.disabled = true;
+            btn.classList.add('opacity-50');
+            loader.classList.remove('hidden');
+            resultsDiv.classList.add('hidden');
+
+            try {
+                const res = await fetch('http://localhost:3000/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: urlInput })
+                });
+
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(errorData.details || "Server failed to scan");
+                }
+
+                const data = await res.json();
+
+                // 1. Safety Verdict
+                const card = document.getElementById('safetyCard');
+                const isSafe = data.safetyAnalysis.safe;
+                
+                card.className = isSafe 
+                    ? 'p-4 rounded-lg border-green-500 bg-green-50 text-green-800' 
+                    : 'p-4 rounded-lg border-red-500 bg-red-50 text-red-800';
+                
+                document.getElementById('verdict').innerText = isSafe ? '✅ SAFE' : '⚠️ UNSAFE';
+                document.getElementById('reason').innerText = data.safetyAnalysis.reason;
+
+                // 2. SSL Data
+                document.getElementById('sslPre').innerText = typeof data.sslData === 'string' 
+                    ? data.sslData 
+                    : JSON.stringify(data.sslData, null, 2);
+
+                // 3. Cookies
+                const list = document.getElementById('cookieList');
+                list.innerHTML = data.cookies.length > 0 
+                    ? data.cookies.map(c => `<li><span class="font-semibold">${c.name}</span></li>`).join('')
+                    : "<li>No cookies found</li>";
+
+                // Screenshot & PDF
+                if (data.screenshotUrl) {
+                    document.getElementById('screenshotImg').src = data.screenshotUrl;
+                } else {
+                    document.getElementById('screenshotImg').alt = 'No screenshot available';
+                }
+
+                if (data.pdfUrl) {
+                    const pdfLink = document.getElementById('pdfLink');
+                    pdfLink.href = data.pdfUrl;
+                    pdfLink.innerText = 'Download PDF';
+                }
+
+                // Link tags
+                const linkList = document.getElementById('linkList');
+                linkList.innerHTML = data.linkTags && data.linkTags.length > 0
+                    ? data.linkTags.map(l => `<li><span class="font-semibold">${l.rel || 'rel'}</span>: <a class="text-blue-600 underline" href="${l.href}">${l.href}</a></li>`).join('')
+                    : "<li>No link tags found</li>";
+
+                // Storage
+                const storagePre = document.getElementById('storagePre');
+                storagePre.innerText = data.storageData ? JSON.stringify(data.storageData, null, 2) : 'No storage data found';
+
+                // Security headers
+                const securityList = document.getElementById('securityList');
+                if (data.securityHeaders) {
+                    securityList.innerHTML = Object.keys(data.securityHeaders).map(k => `<li><span class="font-semibold">${k}</span>: ${data.securityHeaders[k]}</li>`).join('');
+                } else {
+                    securityList.innerHTML = '<li>No security header info</li>';
+                }
+
+                // Background requests
+                const bgReqList = document.getElementById('bgReqList');
+                if (data.backgroundRequests && data.backgroundRequests.length) {
+                    bgReqList.innerHTML = data.backgroundRequests.map(u => `<li><a class="text-blue-600 underline" href="${u}" target="_blank">${u}</a></li>`).join('');
+                } else {
+                    bgReqList.innerHTML = '<li>No background XHR/Fetch requests captured</li>';
+                }
+
+                resultsDiv.classList.remove('hidden');
+            } catch (e) {
+                console.error("Analysis Error:", e);
+                alert("Error: " + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('opacity-50');
+                loader.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
